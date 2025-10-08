@@ -1,37 +1,33 @@
 """
-Django settings for EADLSM project (production-friendly).
+Production-friendly Django settings for prototype (SQLite fallback).
 
-Notes:
-- Reads sensitive values from environment variables (SECRET_KEY, DEBUG, DATABASE_URL, ALLOWED_HOSTS).
-- Falls back to local SQLite if DATABASE_URL is not provided (so local dev works).
-- Configures Whitenoise to serve static files (no extra setup required on Railway).
-- STATICFILES_DIRS keeps your existing 'venues/static' and 'media' locations (update if your layout differs).
+This settings file intentionally avoids any external DB connection (Postgres)
+and uses SQLite so deployments on Railway won't fail due to unreachable DB hosts.
+Note: SQLite on PaaS is ephemeral — good for prototypes, not for production data.
 """
 
 import os
 from pathlib import Path
-import dj_database_url
 
 # ---- Base paths ----
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ---- Security & debug ----
-# Read SECRET_KEY from env, fallback to an insecure local key (ONLY for dev).
 SECRET_KEY = os.environ.get(
     "SECRET_KEY",
     "django-insecure-local-fallback-replace-this-in-production"
 )
 
-# DEBUG should be 'True' or 'False' as a string env var. Default to False for safety.
+# Default to False in production; set DEBUG=True locally if you want.
 DEBUG = os.environ.get("DEBUG", "False").lower() in ("1", "true", "yes")
 
-# ALLOWED_HOSTS: comma-separated env value, sensible defaults include localhost.
+# ALLOWED_HOSTS: allow Railway default host plus localhost. You can update via env var if needed.
 _default_hosts = "localhost,127.0.0.1"
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", f"{_default_hosts}").split(",")
 
 # ---- Installed apps ----
 INSTALLED_APPS = [
-    "venues",  # your app (keep it first if you rely on templates/static order)
+    "venues",  # your app (keep it here if your app is named 'venues')
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -43,8 +39,7 @@ INSTALLED_APPS = [
 # ---- Middleware ----
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    # Whitenoise for static file serving in production without extra webserver
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # serve static files
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -62,7 +57,7 @@ ASGI_APPLICATION = "eadlsm.asgi.application"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [os.path.join(BASE_DIR, "templates")],  # keep if you use a project-level templates dir
+        "DIRS": [os.path.join(BASE_DIR, "templates")],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -76,19 +71,13 @@ TEMPLATES = [
 ]
 
 # ---- Database ----
-# Use DATABASE_URL if provided (Railway / Heroku style). Fallback to local sqlite for dev.
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if DATABASE_URL:
-    DATABASES = {
-        "default": dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=False)
+# PROTOTYPE MODE: Force SQLite to avoid external DB connectivity issues on PaaS.
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
     }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
-        }
-    }
+}
 
 # ---- Password validation ----
 AUTH_PASSWORD_VALIDATORS = [
@@ -105,27 +94,24 @@ USE_I18N = True
 USE_TZ = True
 
 # ---- Static & media files ----
-# static files collected into STATIC_ROOT by collectstatic
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-# Keep your current static dirs (update if your repo structure differs)
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "venues", "static"),
-    # add other static directories if needed
+    # Add any other static dirs you have here
 ]
 
-# Use compressed manifest storage to let Whitenoise serve compressed files
+# Whitenoise storage for compressed static files
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-# Media (user-uploaded) files
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # ---- Default primary key field type ----
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# ---- Logging (simple, prints to stdout so PaaS captures it) ----
+# ---- Logging ----
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -138,6 +124,11 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 
-# ---- Extra dev-friendly settings ----
-# Allow simple run of collectstatic even when DEBUG is True for local testing convenience.
-# (No effect in production other than enabling collectstatic to populate staticfiles folder.)
+# ---- Convenience: print a short warning when DEBUG=False and using SQLite ----
+if not DEBUG:
+    import warnings
+
+    warnings.warn(
+        "Running with DEBUG=False and using SQLite (ephemeral). "
+        "This is OK for prototypes but not for production databases."
+    )
